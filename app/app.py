@@ -1,115 +1,163 @@
-#!/usr/bin/env python3
 from flask import Flask, make_response, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_restful import Api, Resource
+from werkzeug.exceptions import NotFound
 
-app = Flask(__name)
+from models import db, Hero, Power, Hero_powers
+
+app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+
 migrate = Migrate(app, db)
+db.init_app(app)
 
-# Define the models (in models.py)
+api = Api(app)
 
-# Hero-Power association table
-hero_powers = db.Table('hero_powers',
-    db.Column('hero_id', db.Integer, db.ForeignKey('hero.id'), primary_key=True),
-    db.Column('power_id', db.Integer, db.ForeignKey('power.id'), primary_key=True),
-    db.Column('strength', db.String(10))
-)
+# Define a common response function
+def create_response(data, status_code):
+    return make_response(jsonify(data), status_code)
 
-class Hero(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), nullable=False)
-    super_name = db.Column(db.String(80), nullable=False)
-    powers = db.relationship('Power', secondary=hero_powers, back_populates='heroes')
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "super_name": self.super_name,
-            "powers": [power.to_dict() for power in self.powers]
+# Home route
+class Home(Resource):
+    def get(self):
+        response_message = {
+            "message": "WELCOME TO THE SUPER HEROES API."
         }
+        return create_response(response_message, 200)
 
-class Power(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), nullable=False)
-    description = db.Column(db.String(200))
+# Heroes routes
+class Heroes(Resource):
+    def get(self):
+        heroes = Hero.query.all()
+        hero_list = [
+            {
+                "id": hero.id,
+                "name": hero.name,
+                "super_name": hero.super_name,
+            }
+            for hero in heroes
+        ]
+        return create_response(hero_list, 200)
 
-    heroes = db.relationship('Hero', secondary=hero_powers, back_populates='powers')
+class HeroByID(Resource):
+    def get(self, id):
+        hero = Hero.query.get(id)
+        if not hero:
+            return create_response({"error": "Hero not found"}, 404)
 
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description
+        hero_dict = {
+            "id": hero.id,
+            "name": hero.name,
+            "super_name": hero.super_name,
+            "powers": [
+                {
+                    "id": hero_power.power.id,
+                    "name": hero_power.power.name,
+                    "description": hero_power.power.description,
+                }
+                for hero_power in hero.powers
+            ]
         }
+        return create_response(hero_dict, 200)
 
-@app.route('/')
-def home():
-    return make_response(jsonify({"msg": "Welcome to Hero/Power API"}), 200)
+# Powers routes
+class Powers(Resource):
+    def get(self):
+        powers = Power.query.all()
+        power_list = [
+            {
+                "id": power.id,
+                "name": power.name,
+                "description": power.description,
+            }
+            for power in powers
+        ]
+        return create_response(power_list, 200)
 
-@app.route("/heroes")
-def heroes():
-    heroes = [hero.to_dict() for hero in Hero.query.all()]
-    return make_response(jsonify({"heroes": heroes}), 200)
+class PowerByID(Resource):
+    def get(self, id):
+        power = Power.query.get(id)
+        if not power:
+            return create_response({"error": "Power not found"}, 404)
 
-@app.route("/heroes/<int:id>")
-def heroes_by_id(id):
-    hero = Hero.query.get(id)
-    if not hero:
-        return make_response(jsonify({"error": "Hero not found"}), 404)
-    return make_response(jsonify(hero.to_dict()), 200)
+        power_dict = {
+            "id": power.id,
+            "name": power.name,
+            "description": power.description,
+        }
+        return create_response(power_dict, 200)
 
-@app.route("/powers")
-def powers():
-    powers = [power.to_dict() for power in Power.query.all()]
-    return make_response(jsonify({"powers": powers}), 200)
+class UpdatePowerDescription(Resource):
+    def patch(self, id):
+        data = request.get_json()
+        new_description = data.get("description")
 
-@app.route("/powers/<int:id>", methods=["GET", "PATCH"])
-def powers_by_id(id):
-    power = Power.query.get(id)
-    if not power:
-        return make_response(jsonify({"error": "Power not found"}), 404)
-    
-    if request.method == "GET":
-        return make_response(jsonify(power.to_dict()), 200)
-    elif request.method == "PATCH":
-        description = request.form.get("description")
-        if description and len(description) >= 20:
-            setattr(power, "description", description)
+        power = Power.query.get(id)
+        if not power:
+            return create_response({"error": "Power not found"}, 404)
+
+        if new_description is not None:
+            power.description = new_description
             db.session.commit()
-            return make_response(jsonify(power.to_dict()), 200)
+            updated_power = {
+                "id": power.id,
+                "name": power.name,
+                "description": power.description
+            }
+            return create_response(updated_power, 200)
         else:
-            return make_response(jsonify({"error": "Validation errors"}), 400)
+            return create_response({"errors": ["No description provided"]}, 400)
 
-@app.route("/hero_powers", methods=["POST"])
-def create_hero_power():
-    if request.method == "POST":
-        strength = request.form.get("strength")
-        power_id = request.form.get("power_id")
-        hero_id = request.form.get("hero_id")
-        
-        if strength not in ["Strong", "Weak", "Average"]:
-            return make_response(jsonify({"errors": ["Validation errors"]}), 400)
-        
-        new_hp = hero_powers.insert().values(
+# Hero Powers route
+class HeroPowers(Resource):
+    def post(self):
+        data = request.get_json()
+        required_keys = ["strength", "hero_id", "power_id"]
+
+        if not all(key in data for key in required_keys):
+            return create_response({"errors": ["Validation error: Include all required keys"]}, 400)
+
+        strength = data["strength"]
+        power_id = data["power_id"]
+        hero_id = data["hero_id"]
+
+        power = Power.query.get(power_id)
+        hero = Hero.query.get(hero_id)
+
+        if not power or not hero:
+            return create_response({"errors": ["Validation error: Power or Hero doesn't exist"]}, 400)
+
+        hero_power = Hero_powers(
             strength=strength,
             power_id=power_id,
-            hero_id=hero_id,
+            hero_id=hero_id
         )
-        db.session.execute(new_hp)
+
+        db.session.add(hero_power)
         db.session.commit()
-        
-        updated_hero = Hero.query.get(hero_id)
-        response_data = {
-            "id": updated_hero.id,
-            "name": updated_hero.name,
-            "super_name": updated_hero.super_name,
-            "powers": [power.to_dict() for power in updated_hero.powers]
+
+        power_data = {
+            "id": power.id,
+            "name": power.name,
+            "description": power.description
         }
-        return make_response(jsonify(response_data), 201)
+
+        return create_response(power_data, 201)
+
+# Register routes
+api.add_resource(Home, '/')
+api.add_resource(Heroes, '/heroes')
+api.add_resource(HeroByID, '/heroes/<int:id>')
+api.add_resource(Powers, '/powers')
+api.add_resource(PowerByID, '/powers/<int:id>')
+api.add_resource(UpdatePowerDescription, '/powers/<int:id>')
+api.add_resource(HeroPowers, '/hero_powers')
+
+# Handle Not Found errors
+@app.errorhandler(NotFound)
+def handle_not_found(e):
+    return make_response("Not Found: The requested resource does not exist.", 404)
 
 if __name__ == '__main__':
-    app.run(port=5555)
+    app.run(port=5555, debug=True)

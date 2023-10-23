@@ -1,11 +1,11 @@
-from app import app
-from models import Power, Hero, hero_powers, db
+from app import  app
+from models import Power, Hero, Hero_powers, db
 import random
 
 with app.app_context():
-    # Remove data from the tables
-    db.session.query(Hero).delete()
-    db.session.query(Power).delete()
+    Hero.query.delete()
+    Power.query.delete()
+    Hero_powers.query.delete()
 
     print("🦸‍♀️ Seeding powers...")
 
@@ -20,16 +20,28 @@ with app.app_context():
         power = Power(**data)
         db.session.add(power)
 
+    db.session.commit()
+
     print("🦸‍♀️ Seeding heroes...")
 
     heroes_data = [
         {"name": "Kamala Khan", "super_name": "Ms. Marvel"},
-    
+        {"name": "Doreen Green", "super_name": "Squirrel Girl"},
+        {"name": "Gwen Stacy", "super_name": "Spider-Gwen"},
+        {"name": "Janet Van Dyne", "super_name": "The Wasp"},
+        {"name": "Wanda Maximoff", "super_name": "Scarlet Witch"},
+        {"name": "Carol Danvers", "super_name": "Captain Marvel"},
+        {"name": "Jean Grey", "super_name": "Dark Phoenix"},
+        {"name": "Ororo Munroe", "super_name": "Storm"},
+        {"name": "Kitty Pryde", "super_name": "Shadowcat"},
+        {"name": "Elektra Natchios", "super_name": "Elektra"}
     ]
 
     for data in heroes_data:
         hero = Hero(**data)
         db.session.add(hero)
+
+    db.session.commit()
 
     print("🦸‍♀️ Adding powers to heroes...")
 
@@ -43,10 +55,10 @@ with app.app_context():
             power = random.choice(powers)
             strength = random.choice(strengths)
 
-            hero_power = hero_powers.insert().values(hero_id=hero.id, power_id=power.id, strength=strength)
-            db.session.execute(hero_power)
+            hero_power = Hero_powers(hero_id=hero.id, power_id=power.id, strength=strength)
+            db.session.add(hero_power)
+            print(hero_power)
 
-    # Commit the changes only once at the end
     db.session.commit()
 
     print("🦸‍♀️ Done seeding!")

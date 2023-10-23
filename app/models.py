@@ -1,36 +1,71 @@
+from sqlalchemy.orm import validates
+from sqlalchemy import MetaData, ForeignKey
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy_serializer import SerializerMixin
 
-db = SQLAlchemy()
+metadata = MetaData(naming_convention={
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+})
 
-hero_powers = db.Table(
-    "hero_power",
-    db.Column("hero_id", db.ForeignKey("heroes.id"), primary_key=True),
-    db.Column("power_id", db.ForeignKey("powers.id"), primary_key=True),
-    db.Column("strength", db.String),
-    db.Column("created_at", db.DateTime, server_default=db.func.now()),
-    db.Column("updated_at", db.DateTime, onupdate=db.func.now())
-)
+db = SQLAlchemy(metadata=metadata)
 
-class Hero(db.Model, SerializerMixin):
+class Hero(db.Model):
     __tablename__ = 'heroes'
+
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String)
-    super_name = db.Column(db.String)
+    name = db.Column(db.String(120))
+    super_name = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, onupdate=db.func.now())
-    powers = db.relationship("Power", secondary=hero_powers, back_populates="heroes")
-    serialize_rules = ("-powers.heroes",)
+
+    powers = db.relationship('Hero_powers', back_populates='hero')
 
     def __repr__(self):
-        return f"Hero {self.name} has {self.super_name}."
+        return f'(id={self.id}, name={self.name} super_name={self.super_name})'
 
-class Power(db.Model, SerializerMixin):
-    __tablename__ = "powers"
+class Power(db.Model):
+    __tablename__ = 'powers'
+
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String)
-    description = db.Column(db.String)
+    name = db.Column(db.String(120))
+    description = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, onupdate=db.func.now())
-    heroes = db.relationship("Hero", secondary=hero_powers, back_populates="powers")
-    serialize_rules = ("-heroes.powers",)
+
+    heroes = db.relationship('Hero_powers', back_populates='power')
+
+    def __repr__(self):
+        return f'(id={self.id}, name={self.name} description={self.description})'
+
+    @validates('description')
+    def checks_description(self, key, description):
+        if len(description) < 20:
+            raise ValueError("Description must be longer than 20 chars")
+        else:
+            return description
+        
+class Hero_powers(db.Model):
+    __tablename__ = 'hero_powers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120))
+    strength = db.Column(db.String(20))  # Add the 'strength' field here
+    hero_id = db.Column(db.Integer, ForeignKey('heroes.id'))
+    power_id = db.Column(db.Integer, ForeignKey('powers.id'))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, onupdate=db.func.now())
+
+    hero = db.relationship('Hero', back_populates='powers')
+    power = db.relationship('Power', back_populates='heroes')
+
+    def __repr__(self):
+        return f'(id={self.id}, heroID={self.hero_id}, strength={self.strength}, powerID={self.power_id})'
+    
+    def __repr__(self):
+        return f'(id={self.id}, heroID={self.hero_id} strength={self.strength}) powerID={self.power_id}'
+
+    @validates('strength')
+    def checks_strength(self, key, strength):
+        if strength not in ['Strong', 'Weak', 'Average']:
+            raise ValueError("Strength must be a value either 'Strong', 'Weak' or 'Average'")
+        else:
+            return strength
